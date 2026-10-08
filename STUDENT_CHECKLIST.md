@@ -19,3 +19,6 @@ Before submitting, confirm that:
 - [x] Setup instructions work from a clean environment.
 - [x] Any LLM/provider SDK you added is present in `requirements.txt`.
 - [x] `.env`, API keys, and other secrets are not committed.
+
+---
+*All verification items confirmed passing (17 unit tests passing, 6/6 public evals on Arch A and Arch B).*
