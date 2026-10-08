@@ -6,10 +6,13 @@ Handles:
   - Expired reviews (>365 days from policy ref date 2026-09-30)
   - not_completed reviews
   - Conflicting internal vs. external evidence
+  - Connection errors → falls back to local vendor_risk.json
 """
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
+from pathlib import Path
 
 import requests
 
@@ -19,6 +22,39 @@ from src.vendor_client import get_vendor_risk
 
 # Policy reference date — NEVER use runtime date
 POLICY_REFERENCE_DATE = date(2026, 9, 30)
+
+_LOCAL_RISK_DATA: dict | None = None
+
+
+def _load_local_risk_data() -> dict:
+    """Load local vendor_risk.json as fallback when API server is not running."""
+    global _LOCAL_RISK_DATA
+    if _LOCAL_RISK_DATA is None:
+        root = Path(__file__).resolve().parents[2]
+        _LOCAL_RISK_DATA = json.loads((root / "data" / "vendor_risk.json").read_text(encoding="utf-8"))
+    return _LOCAL_RISK_DATA
+
+
+def _get_vendor_risk_with_fallback(vendor_name: str) -> tuple[dict, bool]:
+    """
+    Try the API first; fall back to local JSON on ConnectionError.
+    Returns (data_dict, used_local_fallback).
+    Raises HTTPError for 503 (simulated outage) — caller handles that.
+    """
+    try:
+        return get_vendor_risk(vendor_name), False
+    except requests.exceptions.ConnectionError:
+        # Mock API server not running — use local data
+        local = _load_local_risk_data()
+        record = local.get(vendor_name)
+        if record is None:
+            raise KeyError(f"No vendor-risk record for '{vendor_name}'")
+        if record.get("force_error"):
+            # Simulate 503 for NimbusAI even via local data
+            r = requests.Response()
+            r.status_code = 503
+            raise requests.exceptions.HTTPError(response=r)
+        return {"vendor_name": vendor_name, **record}, True
 SECURITY_REVIEW_VALIDITY_DAYS = 365
 
 
@@ -56,13 +92,23 @@ def check_vendor_risk(request_id: str) -> dict:
     internal_vendor = vendors_df[
         vendors_df["vendor_name"].str.lower() == vendor_name.lower()
     ]
-    is_new_vendor = internal_vendor.empty
+    if internal_vendor.empty:
+        is_new_vendor = True
+        legal_terms_status = "unknown"
+        internal_procurement_status = "unknown"
+        internal_security_status = ""
+    else:
+        row = internal_vendor.iloc[0]
+        internal_procurement_status = str(row.get("procurement_status", "")).strip().lower()
+        is_new_vendor = internal_procurement_status != "approved"
+        legal_terms_status = str(row.get("legal_terms_status", "")).strip().lower()
+        internal_security_status = str(row.get("security_status", "")).strip().lower()
 
     risk_flags = []
 
-    # --- Call the external vendor-risk API ---
+    # --- Call the external vendor-risk API (with local fallback) ---
     try:
-        api_data = get_vendor_risk(vendor_name)
+        api_data, _used_local = _get_vendor_risk_with_fallback(vendor_name)
         api_available = True
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 503:
@@ -76,6 +122,7 @@ def check_vendor_risk(request_id: str) -> dict:
                 "processes_personal_data": None,
                 "stores_data_outside_region": None,
                 "is_new_vendor": is_new_vendor,
+                "legal_terms_status": legal_terms_status,
                 "evidence": EvidenceItem(
                     source="vendor_risk_tool",
                     finding=(
@@ -99,6 +146,7 @@ def check_vendor_risk(request_id: str) -> dict:
             "processes_personal_data": None,
             "stores_data_outside_region": None,
             "is_new_vendor": is_new_vendor,
+            "legal_terms_status": legal_terms_status,
             "evidence": EvidenceItem(
                 source="vendor_risk_tool",
                 finding=(
@@ -122,10 +170,6 @@ def check_vendor_risk(request_id: str) -> dict:
     review_current = _is_review_current(last_review_date)
 
     # --- Conflict detection: internal catalog vs. API ---
-    internal_security_status = None
-    if not internal_vendor.empty:
-        internal_security_status = str(internal_vendor.iloc[0].get("security_review_status", "")).lower()
-
     conflict_detected = False
     if internal_security_status and security_status:
         # If internal says approved but API says not_completed or vice versa
@@ -177,6 +221,7 @@ def check_vendor_risk(request_id: str) -> dict:
         "processes_personal_data": processes_pii,
         "stores_data_outside_region": stores_outside,
         "is_new_vendor": is_new_vendor,
+        "legal_terms_status": legal_terms_status,
         "evidence": EvidenceItem(
             source="vendor_risk_tool",
             finding=finding,

@@ -260,15 +260,24 @@ def check_legal_triggers(
     req = get_request(request_id)
     annual_cost = req.get("annual_cost_usd")
     is_new_vendor = vendor_risk_result.get("is_new_vendor", False)
+    legal_terms_status = str(vendor_risk_result.get("legal_terms_status", "")).strip().lower()
     stores_outside = vendor_risk_result.get("stores_data_outside_region", False)
 
     reasons = []
 
+    # Condition 1: New vendor and annual spend >= $10,000
     if is_new_vendor and annual_cost is not None and float(annual_cost) >= 10000:
         reasons.append(
             f"New vendor with annual spend ${float(annual_cost):,.0f} >= $10,000 (policy §7)"
         )
 
+    # Condition 2: Legal terms not already approved/standard
+    if legal_terms_status and legal_terms_status not in ("approved", "standard"):
+        reasons.append(
+            f"Vendor legal terms status is '{legal_terms_status}' (not approved/standard) (policy §7)"
+        )
+
+    # Condition 3: Material data-processing / cross-region issue
     if stores_outside:
         reasons.append("Data stored outside operating region — material cross-region issue (policy §7)")
 
