@@ -1,276 +1,193 @@
 # AI Procurement Request Copilot
 
-> **Enterprise Procurement Assistant — Forward Deployed Engineering (FDE) Assessment 3**  
-> Evaluates software purchase requests, applies deterministic enterprise policy constraints, surfaces audit-ready evidence trails, and recommends human approval workflows while preserving human authority.
+Internal procurement triage system designed to evaluate software and SaaS purchase requests against enterprise policy rules, collect verified audit evidence across internal and external tools, and recommend approval routes while preserving human authority.
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Evals Passing](https://img.shields.io/badge/public__evals-6%2F6%20passing%20(100%25)-success.svg)](evals/)
-[![Tests Passing](https://img.shields.io/badge/unit__tests-17%2F17%20passing-success.svg)](tests/)
-[![Policy Snapshot](https://img.shields.io/badge/policy__snapshot-2026.09%20(2026--09--30)-informational.svg)](data/procurement_policy.md)
+Built for FDE Assessment 3.
 
 ---
 
-## 📌 Executive Summary
+## 1. System Overview & Engineering Approach
 
-Enterprise software procurement faces two conflicting failure modes:
-1. **Unconstrained LLM Autonomous Decisions:** Hallucinated approvals, bypassed security reviews, incorrect arithmetic on departmental budgets, and susceptibility to prompt injections embedded in requester text.
-2. **Slow, Opaque Manual Review:** Bureaucratic bottlenecks where simple renewals take weeks while high-risk tools bypass scrutiny.
+A common failure mode in AI-assisted workflows is treating the model as the policy engine itself. Doing so introduces nondeterministic math, hallucinated approvals, and vulnerability to prompt injection embedded in requester justifications.
 
-This solution introduces a **Hybrid Deterministic-Cognitive Architecture**:
-- **Deterministic Policy Engine (`src/tools/`):** Executes 100% of mathematical checks, policy threshold validations, date-based security review expirations, catalog overlap scans, and prompt injection filtering.
-- **LLM Coordinator (`src/solution.py`):** Synthesizes verified evidence into crisp, executive-ready recommendations and next steps without hallucinating rules or overriding human authority.
+Our design separates policy enforcement from natural language synthesis:
 
-Both **Architecture A (Single-Agent Baseline)** and **Architecture B (Staged 2-Agent Pipeline)** achieve **6/6 (100%)** on the official public evaluation suite. Based on rigorous empirical benchmarking, we recommend shipping **Architecture A** for production.
+1. **Deterministic Execution Layer (`src/tools/`):** All calculations, financial thresholds, catalog matching, vendor status checks, and security expirations are written in Python as pure functions. The model is never asked to calculate budgets or decide approval tiers.
+2. **Coordinator Layer (`src/solution.py`):** The LLM receives verified facts compiled from the tool suite and drafts a clear, human-readable recommendation and next step.
+3. **Strict Human Authority (Policy §11):** The copilot is strictly advisory. All purchasing decisions, exceptions, and contracts require human authorization.
 
 ---
 
-## 🏛️ System Architecture
+## 2. Architecture Comparison
 
-```text
-                                 ┌──────────────────────────────────────────────┐
-                                 │          Purchase Request (JSON)             │
-                                 │    (Requester, Spend, Users, Justification)   │
-                                 └──────────────────────┬───────────────────────┘
-                                                        │
-                                                        ▼
-                        ┌───────────────────────────────────────────────────────────────┐
-                        │              Deterministic Tool & Policy Suite                │
-                        ├───────────────────────────────────────────────────────────────┤
-                        │ 1. Completeness Check  ─── Verifies 7 mandatory fields (§1)   │
-                        │ 2. Budget Tool         ─── Departmental arithmetic balance(§2)│
-                        │ 3. Catalog Overlap     ─── Identifies duplicate tools (§3)    │
-                        │ 4. Vendor Risk API     ─── 365-day review expiry & 503 check  │
-                        │ 5. Injection Guard     ─── Neutralizes adversarial prompts(§9)│
-                        │ 6. Approval Engine     ─── Computes required tiers (§4,§5,§6) │
-                        └──────────────────────┬────────────────────────────────────────┘
-                                               │ Verified Evidence Bundle
-                                               ▼
-              ┌─────────────────────────────────────────────────────────────────┐
-              │                   Architecture Choice                           │
-              ├───────────────────────────────┬─────────────────────────────────┤
-              │   Architecture A (Single)     │      Architecture B (Staged)    │
-              │   Single Gemini Coordinator   │   Stage 1: Procurement Analyst  │
-              │   Evidence -> Recommendation  │   Stage 2: Risk & Policy Review │
-              └───────────────────────────────┴─────────────────────────────────┘
-                                               │
-                                               ▼
-                        ┌───────────────────────────────────────────────────────────────┐
-                        │                ProcurementDecision Contract                   │
-                        ├───────────────────────────────────────────────────────────────┤
-                        │ • recommendation (LLM text)                                   │
-                        │ • required_approvals: [Manager, Dept Head, Finance, Security] │
-                        │ • risk_flags: [budget_insufficient, existing_tool_overlap]   │
-                        │ • evidence: [Verified findings with policy references]        │
-                        │ • missing_information: [List of missing required fields]      │
-                        │ • human_review_required: True (Always enforced §11)          │
-                        └───────────────────────────────────────────────────────────────┘
-```
+We implemented and benchmarked two distinct architectures against the public evaluation suite:
+
+### Architecture A: Single-Agent Baseline
+- **Workflow:** Runs all deterministic tools to extract facts, builds a structured evidence payload, and executes a single LLM call to draft the human recommendation.
+- **LLM Calls:** 1 per request.
+- **Tool Invocations:** 6 tool checks per request.
+- **Evaluation Score:** 6/6 (100% pass).
+
+### Architecture B: Staged / 2-Agent Pipeline
+- **Workflow:** 
+  - **Stage 1 (Procurement Analyst):** Gathers tool outputs and formats a structured evidence brief.
+  - **Stage 2 (Risk Reviewer):** Audits the brief against policy constraints and produces the recommendation.
+- **LLM Calls:** 2 per request.
+- **Tool Invocations:** 5 tool checks per request.
+- **Evaluation Score:** 6/6 (100% pass).
+
+### Empirical Evaluation Summary
+
+| Metric | Architecture A (Single-Agent) | Architecture B (Staged) | Notes |
+|---|---:|---:|---|
+| Public Eval Pass Rate | **6 / 6 (100%)** | **6 / 6 (100%)** | Identical policy compliance |
+| Average LLM Invocations | **1.0** | **2.0** | Architecture B incurs 2× token cost |
+| Average Tool Invocations | **6.0** | **5.0** | Full evidence verification |
+| Failure Modes Handled | 503 outage, injection, budget gap | 503 outage, injection, budget gap | Both handle all edge cases |
+| Production Recommendation | **Ship Architecture A** | Alternative for manual triage | Lower latency and complexity |
+
+Detailed trade-offs and rationale are documented in [`docs/ARCHITECTURE_DECISION_MEMO.md`](docs/ARCHITECTURE_DECISION_MEMO.md).
 
 ---
 
-## 📊 Evaluation & Benchmark Results
+## 3. Tool Suite & Policy Guardrails
 
-### Public Evaluations (`evals/run_public_evals.py`)
+The system implements 5 specialized tools in `src/tools/`:
 
-Both architectures were benchmarked against all 6 public evaluation cases:
+1. **Budget Check (`src/tools/budget_tool.py`):** Compares request annual spend against available department software allocations in `department_budgets.csv`. Accurately flags `budget_insufficient` when spend exceeds balance.
+2. **Catalog Overlap Scan (`src/tools/catalog_tool.py`):** Cross-references `software_catalog.csv` for existing tools in the same category, same vendor, or exact product name. Surfaces `existing_tool_overlap` without automatically rejecting.
+3. **Vendor Risk Assessment (`src/tools/vendor_risk_tool.py`):** Queries the external vendor-risk API with local fallback. Evaluates assessment validity strictly against the policy reference date (`2026-09-30`) using a 365-day cutoff. Handles API 503 outages gracefully by setting `vendor_risk_unavailable` and forcing manual security review.
+4. **Policy Engine (`src/tools/policy_engine.py`):** 
+   - Financial approval tiers: $\le \$1\text{k} \rightarrow$ Manager; $\$1\text{k}–\$10\text{k} \rightarrow$ Dept Head + Procurement; $\$10\text{k}–\$25\text{k} \rightarrow$ Dept Head + Finance + Procurement; $>\$25\text{k} \rightarrow$ Dept Head + Finance + CFO + Procurement.
+   - Conditional triggers for Security (§5), Privacy (§6), and Legal (§7).
+5. **Prompt Injection Guard (`src/tools/policy_engine.py`):** Regex-based detection for prompt overrides in untrusted text fields (e.g. `business_justification`), ensuring requester text is treated strictly as data.
 
-| Case ID | Request | Scenario Under Test | Single-Agent (Arch A) | Staged (Arch B) |
+---
+
+## 4. Public Evaluation Results
+
+Both architectures pass all test cases in `evals/public_cases.json`:
+
+| Case ID | Request ID | Scenario | Arch A | Arch B |
 |---|---|---|:---:|:---:|
-| **PUB-01** | `REQ-1001` | Low-value approved vendor ($800) | **PASS** (1 LLM, 6 Tools) | **PASS** (2 LLM, 5 Tools) |
-| **PUB-02** | `REQ-1002` | Existing overlap + new vendor ($12k) | **PASS** (1 LLM, 6 Tools) | **PASS** (2 LLM, 5 Tools) |
-| **PUB-03** | `REQ-1003` | Sensitive source-code access | **PASS** (1 LLM, 6 Tools) | **PASS** (2 LLM, 5 Tools) |
-| **PUB-04** | `REQ-1005` | Budget shortfall + sensitive new vendor | **PASS** (1 LLM, 6 Tools) | **PASS** (2 LLM, 5 Tools) |
-| **PUB-05** | `REQ-1006` | Incomplete request + prompt injection | **PASS** (1 LLM, 6 Tools) | **PASS** (2 LLM, 5 Tools) |
-| **PUB-06** | `REQ-1009` | Vendor-risk API 503 outage | **PASS** (1 LLM, 6 Tools) | **PASS** (2 LLM, 5 Tools) |
-| **Summary** | | **Overall Pass Rate** | **6 / 6 (100%)** | **6 / 6 (100%)** |
+| PUB-01 | REQ-1001 | Low-value approved vendor ($800) | PASS | PASS |
+| PUB-02 | REQ-1002 | Overlapping tool + new vendor ($12k) | PASS | PASS |
+| PUB-03 | REQ-1003 | Sensitive source-code access | PASS | PASS |
+| PUB-04 | REQ-1005 | Budget shortfall + sensitive new vendor | PASS | PASS |
+| PUB-05 | REQ-1006 | Incomplete request + prompt injection | PASS | PASS |
+| PUB-06 | REQ-1009 | Vendor-risk API 503 outage | PASS | PASS |
 
-### Architecture Comparison & Decision
-
-| Metric | Architecture A (Single-Agent) | Architecture B (Staged 2-Agent) | Advantage |
-|---|---|---|---|
-| **Compliance Rate** | **100% (6/6)** | **100% (6/6)** | Tie |
-| **LLM Calls per Request** | **1 call** | **2 calls** | **Arch A (50% cheaper)** |
-| **Prompt Overhead** | ~400 tokens | ~900 tokens | **Arch A** |
-| **Operational Complexity** | Single prompt coordinator | Multi-agent handoff serialization | **Arch A** |
-| **Failure Surface** | 1 API call to fail | 2 API calls to fail | **Arch A (Higher resilience)** |
-| **Verdict** | **RECOMMENDED FOR PRODUCTION** | *Alternative for manual triage* | **Arch A** |
-
-See full analysis in [Architecture Decision Memo](docs/ARCHITECTURE_DECISION_MEMO.md).
+Output CSVs are generated at:
+- `evals/results_single.csv`
+- `evals/results_staged.csv`
 
 ---
 
-## 🛠️ Tooling & Deterministic Guardrails
+## 5. Local Setup & Running Instructions
 
-The implementation features **5 core tools** (`src/tools/`):
+### Prerequisites
+- Python 3.11 or higher
+- Virtual environment
 
-1. **Budget Tool (`src/tools/budget_tool.py`):**
-   - Pure arithmetic calculation comparing annualized request amount against departmental software budget balance.
-   - Accurately identifies `budget_insufficient` when cost exceeds balance (e.g. `REQ-1005`).
-
-2. **Catalog Overlap Tool (`src/tools/catalog_tool.py`):**
-   - Scans approved catalog (`data/software_catalog.csv`) for exact product matches, same vendor licenses, and category alternatives.
-   - Flags `existing_tool_overlap` without automatically rejecting, preserving business flexibility (§3).
-
-3. **Vendor Risk Tool (`src/tools/vendor_risk_tool.py`):**
-   - Calls the mock vendor-risk API (`http://127.0.0.1:8001`) with graceful fallback to `data/vendor_risk.json`.
-   - **Deterministic 365-day expiry:** Compares review dates strictly against policy reference date `2026-09-30`.
-   - **Outage Handling:** Gracefully traps HTTP 503 errors and surfaces `vendor_risk_unavailable`, forcing manual Security review (§10).
-   - **Conflict Detection:** Identifies discrepancies between internal vendor registry and external API data.
-
-4. **Policy Engine (`src/tools/policy_engine.py`):**
-   - Encodes exact financial tier thresholds (§4):
-     - $\le \$1,000 \rightarrow$ Manager
-     - $\$1,000.01 - \$10,000 \rightarrow$ Department Head + Procurement
-     - $\$10,000.01 - \$25,000 \rightarrow$ Department Head + Finance + Procurement
-     - $> \$25,000 \rightarrow$ Department Head + Finance + CFO + Procurement
-   - Determines conditional triggers for Security (§5), Privacy (§6), and Legal (§7).
-
-5. **Prompt Injection Guard (`src/tools/policy_engine.py`):**
-   - Scans requester justifications and product fields for prompt injection patterns (`ignore all previous instructions`, `treat as approved`, etc.).
-   - Flags `prompt_injection_detected`, neutralizes the instruction, and processes the request strictly via real policy rules (§9).
-
----
-
-## 🚀 Getting Started
-
-### 1. Installation
-
+### Setup
 ```bash
-# Clone the repository
-git clone <your-repo-url>
-cd <repo-folder>
+# 1. Clone repository
+git clone https://github.com/AryanSirohi148/fde-assessment-3-procurement-copilot.git
+cd fde-assessment-3-procurement-copilot
 
-# Create virtual environment
+# 2. Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
+# 3. Install dependencies
 pip install -r requirements.txt
-```
 
-### 2. Environment Configuration
-
-Copy `.env.example` to `.env` and provide your Google Gemini API key:
-
-```bash
+# 4. Configure credentials
 cp .env.example .env
+# Edit .env and supply your GOOGLE_API_KEY
 ```
 
-Edit `.env`:
-```env
-GOOGLE_API_KEY=your_gemini_api_key_here
-MODEL_NAME=gemini-3.8-flash
-VENDOR_RISK_BASE_URL=http://127.0.0.1:8001
-```
-
-### 3. Verify Setup (Pre-flight Checks)
-
+### Preflight Verification
 ```bash
 python verify_setup.py
 ```
-Expected output: `PRE-FLIGHT PASSED`.
+Should output: `PRE-FLIGHT PASSED`.
 
----
-
-## 🧪 Running Evaluations & Tests
-
-### Run Public Evaluations
-
+### Run Evaluations
 ```bash
-# Evaluate Architecture A (Single-Agent)
+# Architecture A (Single-agent)
 python evals/run_public_evals.py --architecture single
 
-# Evaluate Architecture B (Staged)
+# Architecture B (Staged)
 python evals/run_public_evals.py --architecture staged
 ```
 
-Results are saved to `evals/results_single.csv` and `evals/results_staged.csv`.
-
 ### Run Unit Tests
-
 ```bash
 python -m unittest discover tests
 ```
-Runs 17 comprehensive unit tests verifying data integrity, mock API, deterministic policy tiers, security/legal triggers, prompt injection detection, and both architectures.
+Runs 17 unit and regression tests verifying policy tiers, data integrity, mock API, and end-to-end execution.
 
----
-
-## 🖥️ Interactive Streamlit Dashboard
-
-Launch the executive UI:
-
+### Launch Interactive UI
 ```bash
 python run_local.py
-# Or directly via streamlit:
-streamlit run app.py
 ```
-
-Open `http://localhost:8501` to access:
-- **Interactive Purchase Request Inspector**: Select any request (`REQ-1001` through `REQ-1010`)
-- **Visual Risk Radar**: Color-coded badges for high, medium, and low risks
-- **Approval Stepper**: Required approver workflow visualization
-- **Audit Evidence Trail**: Expandable verified evidence citations linked to policy sections
-- **Side-by-Side Comparison Mode**: Benchmark Single-Agent vs. Staged architectures side-by-side with live latency and telemetry tracking
-
----
-
-## 🔒 Governance & Ethical Guardrails
-
-- **Human Authority (§11):** The copilot is strictly advisory. `human_review_required` is permanently enforced (`True`). It cannot autonomously approve spend, modify budgets, or sign vendor terms.
-- **Untrusted Business Data (§9):** All requester inputs are treated as data, not instructions. Prompt injection attempts are neutralized before reaching the LLM coordinator.
-- **Reference Date Consistency:** All date evaluations strictly use the policy reference date (`2026-09-30`), ensuring reproducible evaluations regardless of the runner's machine time.
+Starts the mock vendor-risk service on port `8001` and the Streamlit dashboard on `http://localhost:8501`.
+Features:
+- Request inspector for all 10 sample requests
+- Required approval pipeline stepper
+- Policy risk flags and audit evidence trail
+- Side-by-side architecture comparison tab
 
 ---
 
-## 📁 Repository Structure
+## 6. Repository Layout
 
 ```text
 .
-├── app.py                     # Executive Streamlit Dashboard
-├── run_local.py               # Starts mock API (8001) + UI (8501)
+├── app.py                     # Streamlit dashboard
+├── run_local.py               # Starts mock API and UI
 ├── verify_setup.py            # Pre-flight environment check
-├── requirements.txt           # Python dependencies (fastapi, genai, streamlit)
+├── requirements.txt           # Dependencies
 ├── STUDENT_CHECKLIST.md       # Pre-submission verification checklist
 │
-├── data/                      # Synthetic enterprise dataset
-│   ├── requests.json          # 10 sample procurement requests
-│   ├── vendors.csv            # Internal vendor registry
-│   ├── software_catalog.csv   # Approved software catalog
-│   ├── department_budgets.csv # Department software allocations
-│   ├── vendor_risk.json       # Mock API reference data
-│   └── procurement_policy.md  # Policy source of truth (v2026.09)
+├── data/                      # Synthetic data and policy source of truth
+│   ├── requests.json          # 10 procurement requests
+│   ├── vendors.csv            # Vendor registry
+│   ├── software_catalog.csv   # Catalog items
+│   ├── department_budgets.csv # Budget allocations
+│   ├── vendor_risk.json       # Mock API data
+│   └── procurement_policy.md  # Policy specification (v2026.09)
 │
 ├── docs/                      # Documentation
-│   ├── ARCHITECTURE_DECISION_MEMO.md  # 500-word decision memo
-│   └── Assignment_3_Brief.pdf
+│   └── ARCHITECTURE_DECISION_MEMO.md
 │
 ├── evals/                     # Evaluation harness
 │   ├── public_cases.json      # 6 public test cases
-│   ├── run_public_evals.py    # Public eval runner
-│   ├── results_single.csv     # Single-agent eval output (6/6 pass)
-│   └── results_staged.csv     # Staged eval output (6/6 pass)
+│   ├── run_public_evals.py    # Evaluation runner
+│   ├── results_single.csv     # Architecture A results
+│   └── results_staged.csv     # Architecture B results
 │
 ├── mock_api/                  # External service simulation
-│   └── app.py                 # FastAPI vendor-risk service (503 simulation)
+│   └── app.py                 # FastAPI service simulating 503 outages
 │
-├── src/                       # Production source code
-│   ├── solution.py            # Architecture A & B implementations (handle_request)
-│   ├── contracts.py           # Pydantic schema contracts
-│   ├── data_access.py         # Data loading helpers
-│   ├── vendor_client.py       # API client
-│   ├── telemetry.py           # Metrics tracker
-│   └── tools/                 # Deterministic tools package
-│       ├── __init__.py
-│       ├── budget_tool.py     # Deterministic budget calculation
-│       ├── catalog_tool.py    # Software overlap scanner
-│       ├── vendor_risk_tool.py# 365-day expiry & 503 outage handler
-│       └── policy_engine.py   # Full policy rule compiler & injection guard
+├── src/                       # Application code
+│   ├── solution.py            # handle_request adapter (Arch A & B)
+│   ├── contracts.py           # Pydantic data contracts
+│   ├── data_access.py         # CSV/JSON loaders
+│   ├── vendor_client.py       # Vendor API client
+│   ├── telemetry.py           # Call and latency counter
+│   └── tools/                 # Deterministic policy tools
+│       ├── budget_tool.py     # Budget balance check
+│       ├── catalog_tool.py    # Overlap detection
+│       ├── vendor_risk_tool.py# 365-day expiry and 503 handling
+│       └── policy_engine.py   # Tier validation & prompt injection filter
 │
 ├── templates/
-│   └── architecture_decision.md # Decision memo template
+│   └── architecture_decision.md
 │
-└── tests/                     # 17 Unit & integration tests
+└── tests/                     # Test suite
     ├── test_data_integrity.py
     ├── test_mock_api.py
-    └── test_solution.py       # Comprehensive solution & policy tests
+    └── test_solution.py       # 7 end-to-end and unit test cases
 ```

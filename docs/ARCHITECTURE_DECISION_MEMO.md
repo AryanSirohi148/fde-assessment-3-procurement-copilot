@@ -1,54 +1,40 @@
 # Architecture Decision Memo
 
-**Maximum length: 500 words** &nbsp;|&nbsp; **Word count: ~440 words**
-
----
+**Maximum length: 500 words** (Word count: 432 words)
 
 ## Decision
 
-**Ship Architecture A (Single-Agent Baseline with Deterministic Policy Engine) today.**
+I recommend shipping **Architecture A (Single-Agent with Deterministic Policy Engine)** for the initial production release.
 
-For enterprise procurement intake and advisory routing, Architecture A provides the highest reliability, lowest token cost, and simplest operational surface while achieving **100% policy compliance (6/6 public evals passing)**. Architecture B remains an optional expansion for high-risk manual review handoffs.
-
----
+While multi-agent patterns are popular, enterprise procurement triage is fundamentally a rule-driven classification problem with a small synthesis surface. Architecture A gives us full policy compliance, lower operating cost, and significantly lower latency without the orchestration fragility of Architecture B.
 
 ## Evidence
 
-Both architectures were benchmarked against the identical 6-case public evaluation suite under `evals/run_public_evals.py`:
+Both architectures were benchmarked against the identical 6-case public evaluation suite:
 
-| Metric | Single-Agent (Arch A) | Staged / 2-Agent (Arch B) | Delta / Assessment |
+| Metric | Single-Agent (Architecture A) | Staged 2-Agent (Architecture B) | Notes |
 |---|---:|---:|---|
-| **Quality Criteria Pass Rate** | **6 / 6 (100%)** | **6 / 6 (100%)** | Identical compliance |
-| **Avg LLM Invocations** | **1.0** | **2.0** | Arch B costs **2× tokens** |
-| **Avg Tool Invocations** | **6.0** | **5.0** | Arch A runs full verification pass |
-| **Steady-State Latency** | ~2.5s – 12s | ~0.8s – 31s | Arch A has predictable single-hop latency |
-| **Policy / Grounding Failures** | **0** | **0** | Both zero hallucinations |
-| **Human Authority (§11)** | **100% Enforced** | **100% Enforced** | Neither executes autonomous spend |
-
----
+| Public eval pass rate | 6 / 6 (100%) | 6 / 6 (100%) | Both satisfy all minimum policy checks |
+| Average LLM calls / req | 1.0 | 2.0 | Architecture B doubles API consumption |
+| Average tool calls / req | 6.0 | 5.0 | Both execute full evidence collection |
+| Steady-state latency | ~2.5s – 12.0s | ~0.8s – 31.0s | Architecture A avoids multi-hop roundtrips |
+| Policy grounding failures | 0 | 0 | Hard rules are enforced deterministically |
+| Human authority preserved | Yes (Policy §11) | Yes (Policy §11) | Final purchase decision remains manual |
 
 ## Trade-offs
 
-- **Cost & Token Overhead:** Architecture B requires two sequential LLM completions per request (Stage 1 Analyst summary + Stage 2 Reviewer synthesis), doubling API consumption and doubling vulnerability to transient model rate limits or 503 demand spikes.
-- **Explainability:** Architecture A binds verified evidence items directly to the final recommendation in a single prompt context, eliminating information loss between pipeline stages.
-- **Pipeline Complexity:** Multi-stage agent handoffs introduce prompt drift and inter-agent serialization overhead without producing higher policy accuracy on deterministic procurement checks.
-
----
+- **Latency & Reliability:** In Architecture B, each request requires two sequential LLM completions (Analyst brief -> Risk Reviewer synthesis). If either call encounters a network timeout, transient 503 spike, or rate limit, the entire pipeline is blocked. Architecture A keeps the external call surface to a single invocation.
+- **Cost Efficiency:** Architecture B consumes roughly double the token count per request. At enterprise scale (thousands of software purchase requests per quarter), this adds unnecessary inference spend without providing any improvement in approval accuracy.
+- **Explainability:** Architecture A evaluates all tools in Python and compiles verified evidence directly alongside the final recommendation. In Architecture B, Stage 2 relies on Stage 1's intermediate textual summary, introducing the risk of subtle information loss between agents.
 
 ## Risks / Limitations
 
-1. **Third-Party Service Degradation:** During mock API 503 outages (`REQ-1009`), external vendor risk data is unreachable. The copilot safely flags `vendor_risk_unavailable`, forces human Security review, and utilizes cached evidence.
-2. **Untrusted Business Data:** Requesters may embed prompt injections in justifications (`REQ-1006`). Architecture A neutralizes this via deterministic regex filtering before prompt construction.
-3. **Pre-Production Validation:** Before live deployment, we will test against a wider corpus of edge cases (e.g. multi-currency conversion, sub-contractor renewals, and SSO compliance exemptions).
-
----
+1. **Third-Party Outages:** During vendor-risk API outages (`REQ-1009`), external security data cannot be retrieved. We mitigate this by failing closed: flagging `vendor_risk_unavailable` and routing to manual Security review.
+2. **Adversarial Requester Input:** Untrusted text fields can contain prompt injections (`REQ-1006`). We strip and detect these patterns deterministically in Python before constructing prompts, treating business text strictly as data.
+3. **Future Production Validation:** Before rollout across all enterprise business units, I would test with additional multi-year contract renewals and international subsidiary tax/currency conversions.
 
 ## Why this is the right MVP
 
-In enterprise software procurement, **accuracy is non-negotiable, but business logic is mostly deterministic**:
-- Financial approval tiers are exact dollar thresholds (§4).
-- Budget shortfalls are exact arithmetic comparisons (§2).
-- Security, privacy, and legal reviews follow strict rule triggers (§5, §6, §7).
-- Human authority must remain sovereign (§11).
+In corporate procurement, mistakes carry financial and compliance liability. Math (budget comparisons), thresholds (approval tiers), and trigger rules (PII data access requiring privacy sign-off) must be 100% deterministic. Relying on an LLM to "reason" about dollar arithmetic or contract date math is an anti-pattern.
 
-By delegating calculation and rule enforcement to a deterministic Python policy engine and reserving the LLM strictly for evidence synthesis and natural-language recommendations, Architecture A achieves 100% grounding, eliminates hallucinations, operates at half the cost of a multi-agent system, and delivers the simplest architecture that completely solves the client's problem.
+By handling all arithmetic, database lookups, and policy rules in deterministic Python and using a single LLM call solely to draft a concise, human-readable recommendation, Architecture A provides maximum reliability with the smallest possible failure surface.

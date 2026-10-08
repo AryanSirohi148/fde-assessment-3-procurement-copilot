@@ -84,7 +84,7 @@ st.markdown(
 )
 
 # App Header
-st.title("🛡️ Enterprise AI Procurement Copilot")
+st.title("Enterprise Procurement Copilot")
 st.caption(
     "Policy Reference: **2026.09 (Snapshot: 2026-09-30)** &nbsp;|&nbsp; "
     "Advisory Mode: **Human Authority Reserved (§11)** &nbsp;|&nbsp; "
@@ -95,7 +95,7 @@ st.divider()
 # ──────────────────────────────────────────────
 # Sidebar Controls
 # ──────────────────────────────────────────────
-st.sidebar.header("⚙️ Configuration")
+st.sidebar.header("Configuration")
 
 request_id = st.sidebar.selectbox(
     "Select Purchase Request",
@@ -109,7 +109,7 @@ arch_mode = st.sidebar.radio(
     format_func=lambda m: {
         "single": "Architecture A: Single-Agent Baseline",
         "staged": "Architecture B: Staged (2-Agent Pipeline)",
-        "compare": "⚡ Side-by-Side Comparison",
+        "compare": "Side-by-Side Comparison",
     }[m],
 )
 
@@ -133,13 +133,13 @@ req = BY_ID[request_id]
 left_col, right_col = st.columns([1.1, 1.4], gap="large")
 
 with left_col:
-    st.subheader("📋 Request Details")
+    st.subheader("Request Details")
 
     # Header metrics
     cost_val = req.get("annual_cost_usd")
-    cost_disp = f"${cost_val:,.2f}" if cost_val is not None else "⚠️ Unknown / Not specified"
+    cost_disp = f"${cost_val:,.2f}" if cost_val is not None else "Unknown / Not specified"
     users_val = req.get("user_count")
-    users_disp = f"{users_val} users" if users_val is not None else "⚠️ Unknown"
+    users_disp = f"{users_val} users" if users_val is not None else "Unknown"
 
     m1, m2 = st.columns(2)
     m1.metric("Annual Cost", cost_disp)
@@ -164,15 +164,15 @@ with left_col:
     st.markdown("**Business Justification:**")
     st.info(f"“{req.get('business_justification')}”")
 
-    with st.expander("🔍 View Raw Request JSON"):
+    with st.expander("View Raw Request JSON"):
         st.json(req)
 
 
 def display_decision_panel(decision: ProcurementDecision, label: str = ""):
     if label:
-        st.subheader(f"🤖 Copilot Output ({label})")
+        st.subheader(f"Copilot Output ({label})")
     else:
-        st.subheader("🤖 Copilot Recommendation & Analysis")
+        st.subheader("Recommendation & Policy Analysis")
 
     # 1. Recommendation Banner
     st.markdown(
@@ -198,12 +198,12 @@ def display_decision_panel(decision: ProcurementDecision, label: str = ""):
     # 3. Missing Information Alert
     if decision.missing_information:
         st.error(
-            f"⚠️ **Incomplete Request (§1)**: The following mandatory information is missing before approval can proceed: "
+            f"**Incomplete Request (§1)**: The following mandatory information is missing before approval can proceed: "
             f"**{', '.join(decision.missing_information)}**"
         )
 
     # 4. Required Approvals Pipeline
-    st.markdown("##### 👥 Required Approvals")
+    st.markdown("##### Required Approvals")
     if decision.required_approvals:
         pills_html = "".join([f'<span class="approval-pill">✓ {app}</span>' for app in decision.required_approvals])
         st.markdown(pills_html, unsafe_allow_html=True)
@@ -213,7 +213,7 @@ def display_decision_panel(decision: ProcurementDecision, label: str = ""):
     st.write("")
 
     # 5. Risk Flags
-    st.markdown("##### 🚩 Policy Risk Flags")
+    st.markdown("##### Policy Risk Flags")
     if decision.risk_flags:
         badges_html = ""
         for flag in decision.risk_flags:
@@ -224,7 +224,7 @@ def display_decision_panel(decision: ProcurementDecision, label: str = ""):
                 cls = "risk-med"
             else:
                 cls = "risk-low"
-            badges_html += f'<span class="risk-badge {cls}">⚠️ {flag}</span> '
+            badges_html += f'<span class="risk-badge {cls}">{flag}</span> '
         st.markdown(badges_html, unsafe_allow_html=True)
     else:
         st.success("No policy risk flags triggered.")
@@ -240,7 +240,7 @@ def display_decision_panel(decision: ProcurementDecision, label: str = ""):
         t3.metric("Human Authority", "Enforced (§11)" if decision.human_review_required else "Autonomous")
 
     # 7. Audit Evidence Trail
-    with st.expander(f"📑 Audit Evidence Trail ({len(decision.evidence)} verified findings)"):
+    with st.expander(f"Audit Evidence Trail ({len(decision.evidence)} verified findings)"):
         for i, ev in enumerate(decision.evidence, 1):
             st.markdown(
                 f"""
@@ -253,7 +253,7 @@ def display_decision_panel(decision: ProcurementDecision, label: str = ""):
 
 with right_col:
     if arch_mode == "compare":
-        st.subheader("⚡ Side-by-Side Comparison")
+        st.subheader("Side-by-Side Comparison")
         if st.button("Run Both Architectures", type="primary", use_container_width=True):
             with st.spinner("Executing Architecture A & Architecture B..."):
                 t0 = time.perf_counter()
@@ -283,12 +283,12 @@ with right_col:
                 latency = (time.perf_counter() - start_time) * 1000
 
             display_decision_panel(decision)
-            st.caption(f"⏱️ Total Execution Latency: **{latency:.1f} ms**")
+            st.caption(f"Total Execution Latency: **{latency:.1f} ms**")
         else:
             st.info(f"Click the button above to run evaluation using **{arch_title}**.")
 
 st.divider()
 st.caption(
-    "🔒 **Procurement Governance Rule**: The copilot provides recommendations and evidence synthesis only. "
+    "**Procurement Governance Rule**: Recommendations and evidence synthesis are advisory. "
     "All purchasing, budgetary approvals, and vendor sign-offs require human authorization per Section 11 of the procurement policy."
 )

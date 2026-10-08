@@ -1,15 +1,8 @@
 """
-FDE Assessment 3 — Solution Implementation
-==========================================
-
-Architecture A (single): One Gemini coordinator runs all tools deterministically,
-then asks the LLM to write a short human-readable recommendation and next_step.
-All risk flags, required approvals, and evidence come from deterministic code.
-
-Architecture B (staged): Two-stage pipeline.
-  Stage 1 — Analyst: gathers & structures evidence via tools.
-  Stage 2 — Risk Reviewer: audits evidence, assigns approvals/flags.
-  LLM used in both stages; deterministic policy engine provides the hard rules.
+Procurement Copilot — Assessment Solution
+Implements Architecture A (single-agent) and Architecture B (staged 2-agent).
+All policy logic, risk flags, approvals, and arithmetic are strictly deterministic.
+The LLM is invoked solely to draft natural-language recommendations and next steps.
 """
 from __future__ import annotations
 
@@ -238,8 +231,8 @@ DETERMINISTIC TOOL RESULTS:
 """.strip()
 
     # Step 3: LLM writes recommendation + next_step (NO policy decisions — those are deterministic)
-    prompt = f"""You are a procurement copilot assistant. Based on the deterministic analysis below, 
-write a SHORT professional recommendation (1–2 sentences) and a clear next_step (1 sentence).
+    prompt = f"""You are reviewing an enterprise procurement request. Based on the deterministic analysis below, 
+write a concise professional recommendation (1–2 sentences) and a clear next_step (1 sentence).
 
 DO NOT invent risk flags, approvals, or policy decisions. Those are already computed.
 DO NOT approve or purchase anything. Keep humans in control.
